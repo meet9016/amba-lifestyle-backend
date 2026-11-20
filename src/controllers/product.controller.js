@@ -22,7 +22,14 @@ const getProducts = async (req, res, next) => {
       try {
         const dbQuery = {};
         if (category && category !== 'All') dbQuery.category = category;
-        if (vendor) dbQuery.vendor = vendor;
+        if (vendor) {
+          const mongoose = require('mongoose');
+          if (mongoose.Types.ObjectId.isValid(vendor)) {
+            dbQuery.$or = [{ vendor: vendor }, { vendor: new mongoose.Types.ObjectId(vendor) }, { vendor: String(vendor) }];
+          } else {
+            dbQuery.vendor = vendor;
+          }
+        }
         if (search) dbQuery.title = { $regex: search, $options: 'i' };
 
         if (approvalStatus && approvalStatus !== 'all') {
@@ -141,8 +148,8 @@ const createProduct = async (req, res, next) => {
       subCategory: subCategory || 'Handcrafted',
       stock: Number(stock) || 10,
       images: Array.isArray(images) && images.length > 0 ? images : (req.body.imageUrl ? [req.body.imageUrl] : []),
-      vendor: req.user?._id || req.headers['x-user-id'] || 'vendor-store-101',
-      vendorName: vendorName || req.user?.name || req.headers['x-user-name'] || 'Jaipur Weaves Partner',
+      vendor: req.user?._id || req.user?.id || req.body.vendor || req.headers['x-user-id'] || 'vendor',
+      vendorName: vendorName || req.user?.storeName || req.user?.name || req.body.vendorName || req.headers['x-user-name'] || 'Vendor Partner',
       status: 'pending_approval',
       approvalStatus: 'pending',
       tierPricing: tierPricing || [

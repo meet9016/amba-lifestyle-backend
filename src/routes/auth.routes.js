@@ -6,7 +6,10 @@ const {
   getVendors,
   approveVendor,
   rejectVendor,
-  getUsers
+  getUsers,
+  createChecker,
+  getCheckers,
+  deleteChecker
 } = require('../controllers/auth.controller');
 const { verifyToken, authorizeRoles } = require('../middlewares/auth.middleware');
 const validate = require('../middlewares/validate.middleware');
@@ -26,5 +29,10 @@ router.get('/users', verifyToken, authorizeRoles('admin'), getUsers);
 router.get('/vendors', verifyToken, authorizeRoles('admin'), getVendors);
 router.patch('/vendors/:id/approve', verifyToken, authorizeRoles('admin'), approveVendor);
 router.patch('/vendors/:id/reject', verifyToken, authorizeRoles('admin'), rejectVendor);
+
+// Product Checker Management Endpoints
+router.post('/checkers', verifyToken, authorizeRoles('admin'), createChecker);
+router.get('/checkers', getCheckers);
+router.delete('/checkers/:id', verifyToken, authorizeRoles('admin'), deleteChecker);
 
 module.exports = router;

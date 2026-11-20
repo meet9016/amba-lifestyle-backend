@@ -5,6 +5,7 @@ const orderRoutes = require('./order.routes');
 const userRoutes = require('./user.routes');
 const categoryRoutes = require('./category.routes');
 const subcategoryRoutes = require('./subcategory.routes');
+const supportRoutes = require('./support.routes');
 
 const router = express.Router();
 
@@ -23,6 +24,7 @@ router.use('/orders', orderRoutes);
 router.use('/users', userRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/subcategories', subcategoryRoutes);
+router.use('/support', supportRoutes);
 
 module.exports = router;
 

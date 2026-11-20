@@ -9,14 +9,20 @@ const orderSchema = new mongoose.Schema({
   customer: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: false
+  },
+  customerInfo: {
+    name: { type: String, default: '' },
+    email: { type: String, default: '' },
+    phone: { type: String, default: '' },
+    company: { type: String, default: '' }
   },
   items: [
     {
       product: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Product',
-        required: true
+        required: false
       },
       title: String,
       price: Number,
@@ -25,12 +31,78 @@ const orderSchema = new mongoose.Schema({
         required: true,
         min: 1
       },
+      imageUrl: String,
+      category: String,
+      subCategory: String,
       vendor: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
       }
     }
   ],
+  customRequirements: {
+    type: String,
+    default: ''
+  },
+  referenceImages: [
+    {
+      type: String
+    }
+  ],
+  assignedVendor: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
+  assignedVendorName: {
+    type: String,
+    default: ''
+  },
+  assignedAt: {
+    type: Date
+  },
+  assignedChecker: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
+  },
+  assignedCheckerName: {
+    type: String,
+    default: ''
+  },
+  assignedCheckerEmail: {
+    type: String,
+    default: ''
+  },
+  passedToCheckerAt: {
+    type: Date
+  },
+  orderStage: {
+    type: String,
+    enum: [
+      'pending_admin_review',
+      'assigned_to_vendor',
+      'vendor_preparing',
+      'ready_for_inspection',
+      'under_inspection',
+      'quality_failed',
+      'quality_approved',
+      'completed'
+    ],
+    default: 'pending_admin_review'
+  },
+  inspectionReport: {
+    inspectorName: { type: String, default: '' },
+    inspectedAt: { type: Date },
+    qualityCheckPassed: { type: Boolean, default: false },
+    quantityVerified: { type: Boolean, default: false },
+    specificationsMatched: { type: Boolean, default: false },
+    defectNotes: { type: String, default: '' },
+    inspectionPhotos: [{ type: String }],
+    status: { type: String, enum: ['pending', 'passed', 'failed'], default: 'pending' }
+  },
+  vendorCorrectionNotes: {
+    type: String,
+    default: ''
+  },
   shippingAddress: {
     street: String,
     city: String,
@@ -38,26 +110,12 @@ const orderSchema = new mongoose.Schema({
     postalCode: String,
     country: String
   },
-  paymentMethod: {
-    type: String,
-    enum: ['card', 'upi', 'netbanking', 'cod'],
-    default: 'cod'
-  },
-  paymentStatus: {
-    type: String,
-    enum: ['pending', 'paid', 'failed'],
-    default: 'pending'
-  },
   orderStatus: {
     type: String,
-    enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled'],
+    enum: ['pending', 'processing', 'completed', 'cancelled'],
     default: 'pending'
   },
   subTotal: Number,
-  shippingFee: {
-    type: Number,
-    default: 0
-  },
   totalAmount: {
     type: Number,
     required: true
@@ -67,4 +125,5 @@ const orderSchema = new mongoose.Schema({
 });
 
 module.exports = mongoose.model('Order', orderSchema);
+
 

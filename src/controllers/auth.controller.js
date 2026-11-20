@@ -7,13 +7,13 @@ const { JWT_SECRET, JWT_EXPIRES_IN } = require('../config/env');
 
 const generateToken = (user) => {
   return jwt.sign(
-    { id: user._id, email: user.email, role: user.role, name: user.name, storeName: user.storeName },
+    { id: user._id, email: user.email, role: user.role, name: user.name, storeName: user.storeName, employeeId: user.employeeId },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES_IN }
   );
 };
 
-// In-Memory Users store (instant live testing with or without MongoDB)
+// In-Memory Users store (Only Super Admin is pre-configured; vendors register fresh)
 let IN_MEMORY_USERS = [
   {
     _id: 'admin-001',
@@ -25,32 +25,6 @@ let IN_MEMORY_USERS = [
     isApproved: true,
     vendorApprovalStatus: 'approved',
     createdAt: new Date('2026-11-01T00:00:00Z')
-  },
-  {
-    _id: 'vendor-store-101',
-    name: 'Rajesh Verma',
-    email: 'vendor@ambalifestyle.com',
-    passwordHash: bcrypt.hashSync('vendor123', 10),
-    role: 'vendor',
-    phone: '+91 98765 43210',
-    storeName: 'Jaipur Weaves Partner',
-    vendorCategory: 'Ethnic Wear & Handlooms',
-    isApproved: true,
-    vendorApprovalStatus: 'approved',
-    createdAt: new Date('2026-11-10T10:00:00Z')
-  },
-  {
-    _id: 'vendor-store-102',
-    name: 'Bashir Ahmed',
-    email: 'artisan@kashmirloom.com',
-    passwordHash: bcrypt.hashSync('artisan123', 10),
-    role: 'vendor',
-    phone: '+91 91234 56789',
-    storeName: 'Kashmir Loom Masters',
-    vendorCategory: 'Pashmina & Woolens',
-    isApproved: false,
-    vendorApprovalStatus: 'pending',
-    createdAt: new Date('2026-11-18T08:30:00Z')
   }
 ];
 
@@ -376,6 +350,111 @@ const getUsers = async (req, res, next) => {
   }
 };
 
+// Product Checker Management Endpoints (Admin action)
+const createChecker = async (req, res, next) => {
+  try {
+    const { name, email, password, phone, department, employeeId } = req.body;
+
+    if (!name || !email || !password) {
+      return next(ApiError.badRequest('Name, email, and password are required'));
+    }
+
+    // Check duplicate in-memory
+    const existingInMemory = IN_MEMORY_USERS.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (existingInMemory) {
+      return next(ApiError.badRequest('An account with this email address already exists.'));
+    }
+
+    const empId = employeeId || `CHK-${Date.now().toString().slice(-4)}`;
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    let createdDbUser = null;
+    if (require('mongoose').connection.readyState === 1) {
+      try {
+        createdDbUser = await User.create({
+          name,
+          email: email.toLowerCase(),
+          password,
+          role: 'checker',
+          phone: phone || '',
+          employeeId: empId,
+          department: department || 'Quality Inspection',
+          isApproved: true,
+          vendorApprovalStatus: 'approved'
+        });
+      } catch (dbErr) {
+        if (dbErr.code === 11000) {
+          return next(ApiError.badRequest('An account with this email address already exists.'));
+        }
+        return next(ApiError.badRequest(dbErr.message));
+      }
+    }
+
+    const finalChecker = createdDbUser ? createdDbUser.toObject() : {
+      _id: `chk-${Date.now()}`,
+      name,
+      email: email.toLowerCase(),
+      role: 'checker',
+      phone: phone || '',
+      employeeId: empId,
+      department: department || 'Quality Inspection',
+      isApproved: true,
+      vendorApprovalStatus: 'approved',
+      createdAt: new Date()
+    };
+
+    delete finalChecker.password;
+
+    IN_MEMORY_USERS.push({
+      ...finalChecker,
+      passwordHash
+    });
+
+    return ApiResponse.created(res, `Product Checker ${name} created successfully`, finalChecker);
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getCheckers = async (req, res, next) => {
+  try {
+    let checkers = [];
+    if (require('mongoose').connection.readyState === 1) {
+      try {
+        checkers = await User.find({ role: 'checker' }).select('-password').sort({ createdAt: -1 });
+      } catch (_) {}
+    }
+
+    if (!checkers || checkers.length === 0) {
+      checkers = IN_MEMORY_USERS.filter(u => u.role === 'checker').map(u => {
+        const copy = { ...u };
+        delete copy.passwordHash;
+        return copy;
+      });
+    }
+
+    return ApiResponse.success(res, 'Product Checkers retrieved successfully', checkers);
+  } catch (error) {
+    next(error);
+  }
+};
+
+const deleteChecker = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    if (require('mongoose').connection.readyState === 1) {
+      try {
+        await User.findByIdAndDelete(id);
+      } catch (_) {}
+    }
+
+    IN_MEMORY_USERS = IN_MEMORY_USERS.filter(u => String(u._id) !== String(id));
+    return ApiResponse.success(res, 'Checker removed successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -383,5 +462,8 @@ module.exports = {
   getVendors,
   approveVendor,
   rejectVendor,
-  getUsers
+  getUsers,
+  createChecker,
+  getCheckers,
+  deleteChecker
 };

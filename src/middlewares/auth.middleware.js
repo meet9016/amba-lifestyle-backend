@@ -17,8 +17,8 @@ const verifyToken = async (req, res, next) => {
       // In development or when role header is explicitly passed (e.g. from internal portal)
       if (req.headers['x-user-role'] || process.env.NODE_ENV === 'development') {
         req.user = {
-          _id: req.headers['x-user-id'] || 'vendor-store-101',
-          name: req.headers['x-user-name'] || 'Jaipur Weaves Partner',
+          _id: req.headers['x-user-id'] || 'vendor',
+          name: req.headers['x-user-name'] || 'Vendor Partner',
           email: req.headers['x-user-email'] || 'vendor@ambalifestyle.com',
           role: req.headers['x-user-role'] || 'vendor'
         };
