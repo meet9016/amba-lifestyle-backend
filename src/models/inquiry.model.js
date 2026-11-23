@@ -48,6 +48,15 @@ const inquirySchema = new mongoose.Schema(
       type: [String],
       default: []
     },
+    inquiryType: {
+      type: String,
+      enum: ['custom_requirement', 'artisan_product'],
+      default: 'custom_requirement'
+    },
+    isDirectProductInquiry: {
+      type: Boolean,
+      default: false
+    },
     status: {
       type: String,
       enum: ['pending', 'in_review', 'quoted', 'approved', 'rejected'],

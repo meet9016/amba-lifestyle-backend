@@ -206,6 +206,13 @@ const createInquiry = async (req, res, next) => {
     else if (rawCat.includes('fashion') || rawCat.includes('apparel') || rawCat.includes('saree')) cleanCategory = 'fashion';
     else cleanCategory = category || 'fashion';
 
+    const isDirectProductInquiry = Boolean(
+      req.body.isDirectProductInquiry ||
+      inquirySize.includes('Catalog Price') ||
+      (description && description.includes('I am interested in') && description.includes('(Price:'))
+    );
+    const inquiryType = isDirectProductInquiry ? 'artisan_product' : (req.body.inquiryType || 'custom_requirement');
+
     const inquiryNumber = generateInquiryNumber();
     const newInquiryData = {
       inquiryNumber,
@@ -218,6 +225,8 @@ const createInquiry = async (req, res, next) => {
       description: (description || '').trim(),
       phone: (phone || '').trim(),
       images: Array.isArray(images) ? images : images ? [images] : [],
+      inquiryType,
+      isDirectProductInquiry,
       status: 'pending',
       quotedPrice: 0,
       adminNotes: '',
