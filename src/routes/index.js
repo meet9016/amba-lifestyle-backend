@@ -6,6 +6,7 @@ const userRoutes = require('./user.routes');
 const categoryRoutes = require('./category.routes');
 const subcategoryRoutes = require('./subcategory.routes');
 const supportRoutes = require('./support.routes');
+const inquiryRoutes = require('./inquiry.routes');
 
 const router = express.Router();
 
@@ -25,6 +26,7 @@ router.use('/users', userRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/subcategories', subcategoryRoutes);
 router.use('/support', supportRoutes);
+router.use('/inquiries', inquiryRoutes);
 
 module.exports = router;
 
