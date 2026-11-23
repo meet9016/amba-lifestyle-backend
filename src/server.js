@@ -5,6 +5,7 @@ const { PORT, NODE_ENV } = require('./config/env');
 
 // Helper to automatically free the port if another stale process is holding it
 const freePort = (targetPort) => {
+  if (process.env.NODE_ENV === 'production') return;
   try {
     const isWindows = process.platform === 'win32';
     if (isWindows) {

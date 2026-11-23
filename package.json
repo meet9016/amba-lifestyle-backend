@@ -5,6 +5,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "build": "echo 'Build completed - no compilation step needed for Node.js API'",
     "predev": "node -e \"const {execSync}=require('child_process');try{const out=execSync('netstat -ano | findstr :5005',{encoding:'utf8'});out.trim().split('\\n').forEach(l=>{const p=l.trim().split(/\\s+/);const pid=p[p.length-1];if(pid&&pid!=='0'&&pid!=process.pid)try{execSync('taskkill /F /PID '+pid,{stdio:'ignore'})}catch(_){}})}catch(_){}\"",
     "dev": "nodemon src/server.js",
     "clean-port": "node -e \"const {execSync}=require('child_process');try{const out=execSync('netstat -ano | findstr :5005',{encoding:'utf8'});out.trim().split('\\n').forEach(l=>{const p=l.trim().split(/\\s+/);const pid=p[p.length-1];if(pid&&pid!=='0'&&pid!=process.pid)try{execSync('taskkill /F /PID '+pid,{stdio:'ignore'});console.log('Freed port 5005 (killed PID '+pid+')')}catch(_){}})}catch(_){console.log('Port 5005 already free')}\""
