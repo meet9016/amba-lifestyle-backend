@@ -62,6 +62,39 @@ const inquirySchema = new mongoose.Schema(
       type: String,
       default: ''
     },
+    messages: [
+      {
+        sender: {
+          type: String,
+          enum: ['customer', 'admin'],
+          default: 'customer'
+        },
+        senderName: {
+          type: String,
+          default: ''
+        },
+        message: {
+          type: String,
+          required: true
+        },
+        attachments: {
+          type: [String],
+          default: []
+        },
+        isSeen: {
+          type: Boolean,
+          default: false
+        },
+        readByAdmin: {
+          type: Boolean,
+          default: false
+        },
+        createdAt: {
+          type: Date,
+          default: Date.now
+        }
+      }
+    ],
     timeline: [
       {
         status: { type: String, required: true },

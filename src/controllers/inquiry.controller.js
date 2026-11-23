@@ -20,6 +20,14 @@ const generateInquiryNumber = () => {
   return `INQ-${year}-${rand}`;
 };
 
+// Helper to build safe Mongoose query for id or inquiryNumber
+const buildInquiryIdQuery = (id) => {
+  if (typeof id === 'string' && /^[0-9a-fA-F]{24}$/.test(id)) {
+    return { $or: [{ _id: id }, { inquiryNumber: id }] };
+  }
+  return { inquiryNumber: id };
+};
+
 /**
  * Send OTP to Email
  * POST /api/v1/inquiries/send-otp
@@ -201,6 +209,7 @@ const createInquiry = async (req, res, next) => {
       status: 'pending',
       quotedPrice: 0,
       adminNotes: '',
+      messages: [],
       timeline: [
         {
           status: 'pending',
@@ -392,9 +401,7 @@ const getInquiryById = async (req, res, next) => {
     let item = null;
 
     try {
-      item = await Inquiry.findOne({
-        $or: [{ _id: id.match(/^[0-9a-fA-F]{24}$/) ? id : null }, { inquiryNumber: id }]
-      });
+      item = await Inquiry.findOne(buildInquiryIdQuery(id));
     } catch (_) {}
 
     if (!item) {
@@ -423,9 +430,7 @@ const updateInquiryStatus = async (req, res, next) => {
     let updated = null;
 
     try {
-      const doc = await Inquiry.findOne({
-        $or: [{ _id: id.match(/^[0-9a-fA-F]{24}$/) ? id : null }, { inquiryNumber: id }]
-      });
+      const doc = await Inquiry.findOne(buildInquiryIdQuery(id));
 
       if (doc) {
         if (status) doc.status = status;
@@ -484,9 +489,7 @@ const deleteInquiry = async (req, res, next) => {
     const { id } = req.params;
 
     try {
-      await Inquiry.deleteOne({
-        $or: [{ _id: id.match(/^[0-9a-fA-F]{24}$/) ? id : null }, { inquiryNumber: id }]
-      });
+      await Inquiry.deleteOne(buildInquiryIdQuery(id));
     } catch (_) {}
 
     memoryInquiries = memoryInquiries.filter(i => String(i._id) !== id && i.inquiryNumber !== id);
@@ -520,6 +523,145 @@ const clearAllInquiries = async (req, res, next) => {
   }
 };
 
+/**
+ * Add Message to Customer Inquiry (Customer or Admin)
+ * POST /api/v1/inquiries/:id/messages
+ */
+const addInquiryMessage = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { message, sender = 'customer', senderName, attachments = [] } = req.body;
+
+    if (!message || !message.trim()) {
+      return next(ApiError.badRequest('Message content is required'));
+    }
+
+    const cleanMsg = message.trim();
+    const cleanSender = sender === 'admin' ? 'admin' : 'customer';
+    const cleanSenderName = senderName || (cleanSender === 'admin' ? 'Amba Support Admin' : 'Customer');
+
+    const msgData = {
+      sender: cleanSender,
+      senderName: cleanSenderName,
+      message: cleanMsg,
+      attachments: Array.isArray(attachments) ? attachments : [],
+      isSeen: cleanSender === 'admin',
+      readByAdmin: cleanSender === 'admin',
+      createdAt: new Date()
+    };
+
+    let updated = null;
+    let savedMsg = null;
+
+    try {
+      const doc = await Inquiry.findOne(buildInquiryIdQuery(id));
+
+      if (doc) {
+        if (!Array.isArray(doc.messages)) {
+          doc.messages = [];
+        }
+        doc.messages.push(msgData);
+        doc.timeline.push({
+          status: doc.status,
+          note: `New message from ${cleanSender === 'admin' ? 'Admin' : 'Customer'}: "${cleanMsg.slice(0, 40)}${cleanMsg.length > 40 ? '...' : ''}"`,
+          updatedAt: new Date()
+        });
+        updated = await doc.save();
+        if (updated.messages && updated.messages.length > 0) {
+          savedMsg = updated.messages[updated.messages.length - 1];
+        }
+      }
+    } catch (err) {
+      console.error('Error saving message to DB:', err.message);
+    }
+
+    // In-memory fallback / sync
+    const memIndex = memoryInquiries.findIndex(i => String(i._id) === id || i.inquiryNumber === id);
+    if (memIndex !== -1) {
+      const existing = memoryInquiries[memIndex];
+      const existingDoc = existing.toObject ? existing.toObject() : existing;
+      const existingMsgs = Array.isArray(existingDoc.messages) ? existingDoc.messages : [];
+      const memMsg = savedMsg || { _id: 'mem_' + Date.now(), ...msgData };
+      const updatedMem = {
+        ...existingDoc,
+        messages: [...existingMsgs, memMsg],
+        timeline: [
+          ...(existingDoc.timeline || []),
+          {
+            status: existingDoc.status,
+            note: `New message from ${cleanSender === 'admin' ? 'Admin' : 'Customer'}`,
+            updatedAt: new Date()
+          }
+        ],
+        updatedAt: new Date()
+      };
+      memoryInquiries[memIndex] = updatedMem;
+      if (!updated) {
+        updated = updatedMem;
+        savedMsg = memMsg;
+      }
+    }
+
+    if (!updated) {
+      return next(ApiError.notFound('Inquiry not found to add message'));
+    }
+
+    return ApiResponse.success(res, 'Message added successfully', {
+      message: savedMsg || msgData,
+      inquiry: updated
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Mark All Messages in an Inquiry as Read / Seen by Admin
+ * PUT /api/v1/inquiries/:id/messages/read
+ */
+const markMessagesAsRead = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const query = buildInquiryIdQuery(id);
+
+    let updated = null;
+    try {
+      const doc = await Inquiry.findOne(query);
+      if (doc) {
+        if (Array.isArray(doc.messages)) {
+          doc.messages.forEach((m) => {
+            m.isSeen = true;
+            m.readByAdmin = true;
+          });
+        }
+        updated = await doc.save();
+      }
+    } catch (err) {
+      console.error('Error marking messages as read in DB:', err.message);
+    }
+
+    // In-memory sync
+    const memIndex = memoryInquiries.findIndex(i => String(i._id) === id || i.inquiryNumber === id);
+    if (memIndex !== -1) {
+      const existing = memoryInquiries[memIndex];
+      const existingDoc = existing.toObject ? existing.toObject() : existing;
+      const msgs = (existingDoc.messages || []).map(m => ({ ...m, isSeen: true, readByAdmin: true }));
+      memoryInquiries[memIndex] = {
+        ...existingDoc,
+        messages: msgs,
+        updatedAt: new Date()
+      };
+      if (!updated) {
+        updated = memoryInquiries[memIndex];
+      }
+    }
+
+    return ApiResponse.success(res, 'Inquiry messages marked as read', { id });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   sendOtp,
   verifyOtp,
@@ -529,6 +671,8 @@ module.exports = {
   getInquiryById,
   updateInquiryStatus,
   deleteInquiry,
-  clearAllInquiries
+  clearAllInquiries,
+  addInquiryMessage,
+  markMessagesAsRead
 };
 
