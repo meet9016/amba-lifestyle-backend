@@ -154,15 +154,18 @@ const createInquiry = async (req, res, next) => {
       specifications = {}
     } = req.body;
 
-    if (!email || !name || !size) {
-      return next(ApiError.badRequest('Product Name, Size, and Email are required'));
+    const inquiryName = (name || req.body.productName || req.body.title || '').trim();
+    const inquirySize = (size || (req.body.price ? `Catalog Price: ₹${req.body.price}` : 'Catalog Product Inquiry')).trim();
+
+    if (!email || !inquiryName) {
+      return next(ApiError.badRequest('Product Name and Email are required'));
     }
 
     const cleanEmail = email.trim().toLowerCase();
 
     // Check OTP verification
     const submitKey = `${cleanEmail}_inquiry_submit`;
-    let isVerified = false;
+    let isVerified = req.body.isDirectProductInquiry ? true : false;
 
     // Check memory OTP or direct OTP passed
     if (otp) {
@@ -194,13 +197,22 @@ const createInquiry = async (req, res, next) => {
       return next(ApiError.badRequest('Please verify your email with OTP before submitting requirement'));
     }
 
+    // Normalize category
+    let cleanCategory = 'fashion';
+    const rawCat = (category || '').toLowerCase();
+    if (rawCat.includes('jewel') || rawCat.includes('silver')) cleanCategory = 'jewelry';
+    else if (rawCat.includes('decor') || rawCat.includes('home') || rawCat.includes('brass')) cleanCategory = 'home_decor';
+    else if (rawCat.includes('other') || rawCat.includes('custom') || rawCat.includes('craft')) cleanCategory = 'other';
+    else if (rawCat.includes('fashion') || rawCat.includes('apparel') || rawCat.includes('saree')) cleanCategory = 'fashion';
+    else cleanCategory = category || 'fashion';
+
     const inquiryNumber = generateInquiryNumber();
     const newInquiryData = {
       inquiryNumber,
       email: cleanEmail,
-      name: name.trim(),
-      category: category || 'fashion',
-      size: size.trim(),
+      name: inquiryName,
+      category: cleanCategory,
+      size: inquirySize,
       specifications: specifications || {},
       quantity: Number(quantity) || 1,
       description: (description || '').trim(),
@@ -357,8 +369,10 @@ const getAllInquiries = async (req, res, next) => {
       inquiries = [];
     }
 
-    // Merge memory inquiries
-    let allItems = inquiries.length > 0 ? inquiries : memoryInquiries;
+    // Merge memory inquiries ensuring no duplicates
+    const existingInqIds = new Set(inquiries.map(i => String(i.inquiryNumber || i._id)));
+    const memUnsaved = memoryInquiries.filter(m => !existingInqIds.has(String(m.inquiryNumber || m._id)));
+    let allItems = [...inquiries, ...memUnsaved];
     if (status && status !== 'all') {
       allItems = allItems.filter(i => i.status === status);
     }

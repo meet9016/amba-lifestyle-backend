@@ -21,7 +21,6 @@ const inquirySchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      enum: ['fashion', 'jewelry', 'home_decor', 'other'],
       default: 'fashion'
     },
     size: {

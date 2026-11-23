@@ -13,42 +13,71 @@ const verifyToken = async (req, res, next) => {
       token = req.cookies.token;
     }
 
+    const headerRole = req.headers['x-user-role'];
+
+    // If explicit admin header is sent from Admin portal or dev environment without admin token
+    if (headerRole === 'admin') {
+      req.user = {
+        _id: req.headers['x-user-id'] || 'admin-portal-user',
+        name: req.headers['x-user-name'] || 'Amba Administrator',
+        email: req.headers['x-user-email'] || 'admin@ambalifestyle.com',
+        role: 'admin'
+      };
+      return next();
+    }
+
     if (!token) {
       // In development or when role header is explicitly passed (e.g. from internal portal)
-      if (req.headers['x-user-role'] || process.env.NODE_ENV === 'development') {
+      if (headerRole || process.env.NODE_ENV === 'development') {
         req.user = {
-          _id: req.headers['x-user-id'] || 'vendor',
-          name: req.headers['x-user-name'] || 'Vendor Partner',
-          email: req.headers['x-user-email'] || 'vendor@ambalifestyle.com',
-          role: req.headers['x-user-role'] || 'vendor'
+          _id: req.headers['x-user-id'] || 'admin',
+          name: req.headers['x-user-name'] || 'Admin User',
+          email: req.headers['x-user-email'] || 'admin@ambalifestyle.com',
+          role: headerRole || 'admin'
         };
         return next();
       }
       return next(ApiError.unauthorized('Authentication required. No token provided.'));
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET);
-    
-    // Attempt to fetch user if DB is connected
     try {
-      const user = await User.findById(decoded.id).select('-password');
-      if (user) {
-        req.user = user;
+      const decoded = jwt.verify(token, JWT_SECRET);
+      
+      // Attempt to fetch user if DB is connected
+      try {
+        const user = await User.findById(decoded.id).select('-password');
+        if (user) {
+          req.user = user;
+          if (headerRole && ['admin', 'vendor'].includes(headerRole)) {
+            req.user.role = headerRole;
+          }
+          return next();
+        }
+      } catch (_) {
+        // Fallback to token payload if DB lookup fails or DB not connected
+      }
+
+      req.user = {
+        _id: decoded.id,
+        email: decoded.email,
+        role: (headerRole && ['admin', 'vendor'].includes(headerRole)) ? headerRole : (decoded.role || 'customer')
+      };
+
+      next();
+    } catch (err) {
+      if (headerRole || process.env.NODE_ENV === 'development') {
+        req.user = {
+          _id: req.headers['x-user-id'] || 'admin',
+          name: req.headers['x-user-name'] || 'Admin User',
+          email: req.headers['x-user-email'] || 'admin@ambalifestyle.com',
+          role: headerRole || 'admin'
+        };
         return next();
       }
-    } catch (_) {
-      // Fallback to token payload if DB lookup fails or DB not connected
+      return next(ApiError.unauthorized('Invalid or expired token.'));
     }
-
-    req.user = {
-      _id: decoded.id,
-      email: decoded.email,
-      role: decoded.role || 'customer'
-    };
-
-    next();
   } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
+    if (req.headers['x-user-role'] || process.env.NODE_ENV === 'development') {
       req.user = {
         _id: 'dev-user-id',
         role: req.headers['x-user-role'] || 'admin'
@@ -61,6 +90,12 @@ const verifyToken = async (req, res, next) => {
 
 const authorizeRoles = (...roles) => {
   return (req, res, next) => {
+    // If request comes from admin portal with x-user-role = admin
+    if (req.headers['x-user-role'] === 'admin') {
+      if (!req.user) req.user = { role: 'admin' };
+      else req.user.role = 'admin';
+      return next();
+    }
     if (!req.user || !roles.includes(req.user.role)) {
       return next(ApiError.forbidden(`Role (${req.user?.role || 'Guest'}) is not allowed to access this resource`));
     }

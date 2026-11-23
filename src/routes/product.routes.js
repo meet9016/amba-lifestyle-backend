@@ -3,9 +3,11 @@ const {
   getProducts,
   getProductById,
   createProduct,
+  updateProduct,
   approveProduct,
   rejectProduct,
-  deleteProduct
+  deleteProduct,
+  clearAllProducts
 } = require('../controllers/product.controller');
 const { verifyToken, authorizeRoles } = require('../middlewares/auth.middleware');
 const validate = require('../middlewares/validate.middleware');
@@ -23,6 +25,13 @@ router.post('/', verifyToken, authorizeRoles('admin', 'vendor'), validate(create
 // Admin approval & rejection routes
 router.patch('/:id/approve', verifyToken, authorizeRoles('admin'), approveProduct);
 router.patch('/:id/reject', verifyToken, authorizeRoles('admin'), rejectProduct);
+
+// Clear all products (reset catalog)
+router.delete('/clear-all', verifyToken, authorizeRoles('admin'), clearAllProducts);
+
+// Update / Edit product
+router.put('/:id', verifyToken, authorizeRoles('admin', 'vendor'), updateProduct);
+router.patch('/:id', verifyToken, authorizeRoles('admin', 'vendor'), updateProduct);
 
 // Delete product
 router.delete('/:id', verifyToken, authorizeRoles('admin', 'vendor'), deleteProduct);

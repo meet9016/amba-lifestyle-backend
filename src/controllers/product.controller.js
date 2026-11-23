@@ -34,11 +34,15 @@ const getProducts = async (req, res, next) => {
 
         if (approvalStatus && approvalStatus !== 'all') {
           dbQuery.approvalStatus = approvalStatus;
+          if (approvalStatus === 'approved') {
+            dbQuery.status = { $ne: 'inactive' };
+          }
         } else if (status && status !== 'all') {
           dbQuery.status = status;
         } else if (!isAdmin && !isVendor && all !== 'true') {
-          // Public storefront only sees approved products
+          // Public storefront only sees active & approved products
           dbQuery.approvalStatus = 'approved';
+          dbQuery.status = { $ne: 'inactive' };
         }
 
         const total = await Product.countDocuments(dbQuery);
@@ -76,11 +80,14 @@ const getProducts = async (req, res, next) => {
 
     if (approvalStatus && approvalStatus !== 'all') {
       filtered = filtered.filter(p => p.approvalStatus === approvalStatus);
+      if (approvalStatus === 'approved') {
+        filtered = filtered.filter(p => p.status !== 'inactive');
+      }
     } else if (status && status !== 'all') {
       filtered = filtered.filter(p => p.status === status);
     } else if (!isAdmin && !isVendor && all !== 'true') {
-      // Default for storefront: only show approved products
-      filtered = filtered.filter(p => p.approvalStatus === 'approved');
+      // Default for storefront: only show active approved products
+      filtered = filtered.filter(p => p.approvalStatus === 'approved' && p.status !== 'inactive');
     }
 
     const total = filtered.length;
@@ -122,10 +129,25 @@ const getProductById = async (req, res, next) => {
   }
 };
 
-// Create product (Vendor action)
+// Create product (Admin / Vendor action)
 const createProduct = async (req, res, next) => {
   try {
-    const {
+    const title = (req.body.title || req.body.name || '').trim();
+    const price = Number(req.body.price);
+    const description = (req.body.description || title || 'Handcrafted artisan product').trim();
+    const discountPrice = req.body.discountPrice ? Number(req.body.discountPrice) : 0;
+    const category = (req.body.category || 'Handcrafted Products').trim();
+    const subCategory = (req.body.subCategory || 'General').trim();
+    const stock = Number(req.body.stock) || 10;
+    
+    const rawImages = req.body.images || (req.body.img ? [req.body.img] : req.body.imageUrl ? [req.body.imageUrl] : []);
+    const images = Array.isArray(rawImages) && rawImages.length > 0 
+      ? rawImages 
+      : (typeof rawImages === 'string' && rawImages ? [rawImages] : ['https://images.unsplash.com/photo-1610030469983-98e550d6193c?auto=format&fit=crop&w=600&q=80']);
+
+    const isAdmin = req.user?.role === 'admin' || req.headers['x-user-role'] === 'admin';
+
+    const newProductData = {
       title,
       description,
       price,
@@ -134,29 +156,17 @@ const createProduct = async (req, res, next) => {
       subCategory,
       stock,
       images,
-      vendorName,
-      tierPricing,
-      specifications
-    } = req.body;
-
-    const newProductData = {
-      title,
-      description: description || title,
-      price: Number(price),
-      discountPrice: discountPrice ? Number(discountPrice) : 0,
-      category,
-      subCategory: subCategory || 'Handcrafted',
-      stock: Number(stock) || 10,
-      images: Array.isArray(images) && images.length > 0 ? images : (req.body.imageUrl ? [req.body.imageUrl] : []),
-      vendor: req.user?._id || req.user?.id || req.body.vendor || req.headers['x-user-id'] || 'vendor',
-      vendorName: vendorName || req.user?.storeName || req.user?.name || req.body.vendorName || req.headers['x-user-name'] || 'Vendor Partner',
-      status: 'pending_approval',
-      approvalStatus: 'pending',
-      tierPricing: tierPricing || [
-        { minQty: 1, maxQty: 5, price: Number(price) },
-        { minQty: 6, price: Math.round(Number(price) * 0.85) }
+      vendor: req.user?._id || req.user?.id || req.body.vendor || req.headers['x-user-id'] || 'admin',
+      vendorName: req.body.vendorName || req.user?.storeName || req.user?.name || (isAdmin ? 'Amba Lifestyle Direct' : 'Artisan Partner'),
+      status: isAdmin ? 'approved' : 'pending_approval',
+      approvalStatus: isAdmin ? 'approved' : 'pending',
+      approvedAt: isAdmin ? new Date() : undefined,
+      approvedBy: isAdmin ? (req.user?.email || 'admin@ambalifestyle.com') : undefined,
+      tierPricing: req.body.tierPricing || [
+        { minQty: 1, maxQty: 5, price },
+        { minQty: 6, price: Math.round(price * 0.85) }
       ],
-      specifications: specifications || {},
+      specifications: req.body.specifications || {},
       rating: 5.0,
       numReviews: 0
     };
@@ -180,7 +190,7 @@ const createProduct = async (req, res, next) => {
     // Save to in-memory store
     IN_MEMORY_PRODUCTS.unshift(finalProduct);
 
-    return ApiResponse.created(res, 'Product submitted successfully. It will be visible on storefront after Admin approval.', finalProduct);
+    return ApiResponse.created(res, 'Product created successfully and published to catalog.', finalProduct);
   } catch (error) {
     next(error);
   }
@@ -287,11 +297,81 @@ const deleteProduct = async (req, res, next) => {
   }
 };
 
+// Update / Edit product (Admin action)
+const updateProduct = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const title = (req.body.title || req.body.name || '').trim();
+    const price = req.body.price !== undefined ? Number(req.body.price) : undefined;
+    const rawImages = req.body.images || (req.body.img ? [req.body.img] : req.body.imageUrl ? [req.body.imageUrl] : undefined);
+    const images = rawImages ? (Array.isArray(rawImages) ? rawImages : [rawImages]) : undefined;
+    const category = req.body.category;
+
+    const updateFields = {};
+    if (title) updateFields.title = title;
+    if (price !== undefined) updateFields.price = price;
+    if (images && images.length > 0) updateFields.images = images;
+    if (category) updateFields.category = category;
+    if (req.body.stock !== undefined) updateFields.stock = Number(req.body.stock);
+    if (req.body.status !== undefined) updateFields.status = req.body.status;
+    if (req.body.approvalStatus !== undefined) updateFields.approvalStatus = req.body.approvalStatus;
+    if (req.body.isActive !== undefined) {
+      const active = Boolean(req.body.isActive);
+      updateFields.isActive = active;
+      updateFields.status = active ? 'approved' : 'inactive';
+      updateFields.approvalStatus = active ? 'approved' : 'inactive';
+    }
+
+    let updatedDoc = null;
+    if (require('mongoose').connection.readyState === 1) {
+      try {
+        updatedDoc = await Product.findByIdAndUpdate(id, updateFields, { new: true });
+      } catch (err) {
+        console.error('DB error updating product:', err.message);
+      }
+    }
+
+    // Update in-memory
+    const memIndex = IN_MEMORY_PRODUCTS.findIndex(p => String(p._id) === String(id));
+    if (memIndex !== -1) {
+      IN_MEMORY_PRODUCTS[memIndex] = {
+        ...IN_MEMORY_PRODUCTS[memIndex],
+        ...updateFields
+      };
+    }
+
+    const result = updatedDoc ? updatedDoc.toObject() : (IN_MEMORY_PRODUCTS[memIndex] || { _id: id, ...updateFields });
+
+    return ApiResponse.success(res, 'Product updated successfully', result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Clear all products (Admin reset catalog)
+const clearAllProducts = async (req, res, next) => {
+  try {
+    IN_MEMORY_PRODUCTS = [];
+    if (require('mongoose').connection.readyState === 1) {
+      try {
+        await Product.deleteMany({});
+      } catch (err) {
+        console.error('DB error clearing products:', err.message);
+      }
+    }
+    return ApiResponse.success(res, 'All products cleared from catalog', null);
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getProducts,
   getProductById,
   createProduct,
+  updateProduct,
   approveProduct,
   rejectProduct,
-  deleteProduct
+  deleteProduct,
+  clearAllProducts
 };

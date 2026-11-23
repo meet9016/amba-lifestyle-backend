@@ -6,7 +6,15 @@ const notFound = (req, res, next) => {
 };
 
 const errorHandler = (err, req, res, next) => {
-  let { statusCode = 500, message = 'Internal Server Error', errors = null } = err;
+  let statusCode = err.statusCode || err.status || 500;
+  let message = err.message || 'Internal Server Error';
+  let errors = err.errors || null;
+
+  // Handle Payload Too Large (e.g. body-parser limit)
+  if (err.type === 'entity.too.large' || statusCode === 413) {
+    statusCode = 413;
+    message = 'Image payload size is too large. Please upload an image under 10MB.';
+  }
 
   // Handle Mongoose Bad ObjectId
   if (err.name === 'CastError') {
