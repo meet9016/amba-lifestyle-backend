@@ -49,7 +49,12 @@ const productSchema = new mongoose.Schema({
   },
   vendorName: {
     type: String,
-    default: 'Artisan Partner'
+    default: ''
+  },
+  companyName: {
+    type: String,
+    default: '',
+    trim: true
   },
   status: {
     type: String,

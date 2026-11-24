@@ -105,7 +105,7 @@ const verifyOtp = async (req, res, next) => {
         await record.save();
         isValid = true;
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // Check memory store
     if (!isValid && memoryOtps.has(key)) {
@@ -144,8 +144,11 @@ const createInquiry = async (req, res, next) => {
     const {
       email,
       name,
-      size,
+      fullName,
+      address,
+      pincode,
       quantity = 1,
+      size,
       description = '',
       phone = '',
       images = [],
@@ -156,6 +159,12 @@ const createInquiry = async (req, res, next) => {
 
     const inquiryName = (name || req.body.productName || req.body.title || '').trim();
     const inquirySize = (size || (req.body.price ? `Catalog Price: ₹${req.body.price}` : 'Catalog Product Inquiry')).trim();
+
+    // Standard fields: fullName, address, pincode, quantity
+    const resolvedFullName = (fullName || req.body.customerName || specifications?.fullName || '').trim();
+    const resolvedAddress = (address || specifications?.address || '').trim();
+    const resolvedPincode = (pincode || specifications?.pincode || '').trim();
+    const resolvedQuantity = Number(quantity !== undefined ? quantity : (req.body.qty !== undefined ? req.body.qty : 1)) || 1;
 
     if (!email || !inquiryName) {
       return next(ApiError.badRequest('Product Name and Email are required'));
@@ -178,14 +187,14 @@ const createInquiry = async (req, res, next) => {
         if (dbOtp && (dbOtp.otp === String(otp).trim() || dbOtp.verified)) {
           isVerified = true;
         }
-      } catch (_) {}
+      } catch (_) { }
     } else {
       const mem = memoryOtps.get(submitKey);
       if (mem && mem.verified) isVerified = true;
       try {
         const dbOtp = await Otp.findOne({ email: cleanEmail, purpose: 'inquiry_submit', verified: true });
         if (dbOtp) isVerified = true;
-      } catch (_) {}
+      } catch (_) { }
     }
 
     // In local dev/demo environment allow submission with clear notice if OTP was just generated
@@ -218,10 +227,13 @@ const createInquiry = async (req, res, next) => {
       inquiryNumber,
       email: cleanEmail,
       name: inquiryName,
+      fullName: resolvedFullName,
+      address: resolvedAddress,
+      pincode: resolvedPincode,
       category: cleanCategory,
       size: inquirySize,
       specifications: specifications || {},
-      quantity: Number(quantity) || 1,
+      quantity: resolvedQuantity,
       description: (description || '').trim(),
       phone: (phone || '').trim(),
       images: Array.isArray(images) ? images : images ? [images] : [],
@@ -261,7 +273,7 @@ const createInquiry = async (req, res, next) => {
     memoryOtps.delete(submitKey);
     try {
       await Otp.deleteMany({ email: cleanEmail, purpose: 'inquiry_submit' });
-    } catch (_) {}
+    } catch (_) { }
 
     return ApiResponse.created(res, 'Requirement submitted successfully! Our team will evaluate and review.', savedInquiry);
   } catch (error) {
@@ -296,14 +308,14 @@ const getMyInquiries = async (req, res, next) => {
         if (dbOtp && (dbOtp.otp === String(otp).trim() || dbOtp.verified)) {
           isVerified = true;
         }
-      } catch (_) {}
+      } catch (_) { }
     } else {
       const mem = memoryOtps.get(trackKey);
       if (mem && mem.verified) isVerified = true;
       try {
         const dbOtp = await Otp.findOne({ email: cleanEmail, purpose: 'inquiry_track', verified: true });
         if (dbOtp) isVerified = true;
-      } catch (_) {}
+      } catch (_) { }
     }
 
     if (!isVerified && process.env.NODE_ENV === 'development') {
@@ -342,11 +354,30 @@ const getMyInquiries = async (req, res, next) => {
  */
 const getAllInquiries = async (req, res, next) => {
   try {
-    const { status, search, timeframe } = req.query;
+    const { status, search, timeframe, category, inquiryType } = req.query;
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.max(1, parseInt(req.query.limit, 10) || 10);
+    const skip = (page - 1) * limit;
+
     let query = {};
 
     if (status && status !== 'all') {
       query.status = status;
+    }
+
+    if (category && category !== 'all') {
+      query.category = category;
+    }
+
+    if (inquiryType && inquiryType !== 'all') {
+      if (inquiryType === 'artisan_product') {
+        query.$or = [
+          { inquiryType: 'artisan_product' },
+          { isDirectProductInquiry: true }
+        ];
+      } else {
+        query.inquiryType = inquiryType;
+      }
     }
 
     const now = new Date();
@@ -367,7 +398,9 @@ const getAllInquiries = async (req, res, next) => {
         { inquiryNumber: searchRegex },
         { name: searchRegex },
         { email: searchRegex },
-        { phone: searchRegex }
+        { phone: searchRegex },
+        { fullName: searchRegex },
+        { pincode: searchRegex }
       ];
     }
 
@@ -382,8 +415,19 @@ const getAllInquiries = async (req, res, next) => {
     const existingInqIds = new Set(inquiries.map(i => String(i.inquiryNumber || i._id)));
     const memUnsaved = memoryInquiries.filter(m => !existingInqIds.has(String(m.inquiryNumber || m._id)));
     let allItems = [...inquiries, ...memUnsaved];
+
     if (status && status !== 'all') {
       allItems = allItems.filter(i => i.status === status);
+    }
+    if (category && category !== 'all') {
+      allItems = allItems.filter(i => i.category === category || (!i.category && category === 'other'));
+    }
+    if (inquiryType && inquiryType !== 'all') {
+      allItems = allItems.filter(i =>
+        inquiryType === 'artisan_product'
+          ? (i.inquiryType === 'artisan_product' || i.isDirectProductInquiry)
+          : (i.inquiryType === 'custom_requirement' && !i.isDirectProductInquiry)
+      );
     }
     if (timeframe === 'today') {
       const todayStr = new Date().toDateString();
@@ -404,11 +448,48 @@ const getAllInquiries = async (req, res, next) => {
       allItems = allItems.filter(i =>
         (i.inquiryNumber && i.inquiryNumber.toLowerCase().includes(s)) ||
         (i.name && i.name.toLowerCase().includes(s)) ||
-        (i.email && i.email.toLowerCase().includes(s))
+        (i.email && i.email.toLowerCase().includes(s)) ||
+        (i.phone && i.phone.toLowerCase().includes(s)) ||
+        (i.fullName && i.fullName.toLowerCase().includes(s)) ||
+        (i.pincode && i.pincode.toLowerCase().includes(s))
       );
     }
 
-    return ApiResponse.success(res, 'Inquiries retrieved successfully', allItems);
+    const total = allItems.length;
+    const totalPages = Math.ceil(total / limit) || 1;
+    const paginatedItems = allItems.slice(skip, skip + limit);
+
+    const stats = {
+      total: allItems.length,
+      artisan: allItems.filter(i => i.inquiryType === 'artisan_product' || i.isDirectProductInquiry).length,
+      custom: allItems.filter(i => !(i.inquiryType === 'artisan_product' || i.isDirectProductInquiry)).length,
+      pending: allItems.filter(i => i.status === 'pending').length,
+      inReview: allItems.filter(i => i.status === 'in_review').length,
+      quoted: allItems.filter(i => i.status === 'quoted').length,
+      approved: allItems.filter(i => i.status === 'approved').length,
+      today: allItems.filter(i => new Date(i.createdAt).toDateString() === new Date().toDateString()).length,
+      week: allItems.filter(i => new Date(i.createdAt) >= new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)).length,
+      month: allItems.filter(i => new Date(i.createdAt).getMonth() === new Date().getMonth() && new Date(i.createdAt).getFullYear() === new Date().getFullYear()).length,
+      fashion: allItems.filter(i => i.category === 'fashion').length,
+      jewelry: allItems.filter(i => i.category === 'jewelry').length,
+      homeDecor: allItems.filter(i => i.category === 'home_decor').length,
+      other: allItems.filter(i => !i.category || i.category === 'other').length
+    };
+
+    return res.status(200).json({
+      success: true,
+      message: 'Inquiries retrieved successfully',
+      data: paginatedItems,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasPrevPage: page > 1,
+        hasNextPage: page < totalPages
+      },
+      stats
+    });
   } catch (error) {
     next(error);
   }
@@ -425,7 +506,7 @@ const getInquiryById = async (req, res, next) => {
 
     try {
       item = await Inquiry.findOne(buildInquiryIdQuery(id));
-    } catch (_) {}
+    } catch (_) { }
 
     if (!item) {
       item = memoryInquiries.find(i => String(i._id) === id || i.inquiryNumber === id);
@@ -468,7 +549,7 @@ const updateInquiryStatus = async (req, res, next) => {
 
         updated = await doc.save();
       }
-    } catch (_) {}
+    } catch (_) { }
 
     // Fallback/sync in memory
     const memIndex = memoryInquiries.findIndex(i => String(i._id) === id || i.inquiryNumber === id);
@@ -513,7 +594,7 @@ const deleteInquiry = async (req, res, next) => {
 
     try {
       await Inquiry.deleteOne(buildInquiryIdQuery(id));
-    } catch (_) {}
+    } catch (_) { }
 
     memoryInquiries = memoryInquiries.filter(i => String(i._id) !== id && i.inquiryNumber !== id);
 
@@ -532,7 +613,7 @@ const clearAllInquiries = async (req, res, next) => {
     try {
       await Inquiry.deleteMany({});
       await Otp.deleteMany({});
-    } catch (_) {}
+    } catch (_) { }
 
     memoryInquiries = [];
     memoryOtps.clear();

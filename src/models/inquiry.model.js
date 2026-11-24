@@ -19,6 +19,21 @@ const inquirySchema = new mongoose.Schema(
       required: true,
       trim: true
     },
+    fullName: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    address: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    pincode: {
+      type: String,
+      default: '',
+      trim: true
+    },
     category: {
       type: String,
       default: 'fashion'
