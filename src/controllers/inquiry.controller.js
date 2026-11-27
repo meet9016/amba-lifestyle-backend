@@ -153,6 +153,7 @@ const createInquiry = async (req, res, next) => {
       phone = '',
       images = [],
       otp,
+      country,
       category = 'fashion',
       specifications = {}
     } = req.body;
@@ -164,6 +165,7 @@ const createInquiry = async (req, res, next) => {
     const resolvedFullName = (fullName || req.body.customerName || specifications?.fullName || '').trim();
     const resolvedAddress = (address || specifications?.address || '').trim();
     const resolvedPincode = (pincode || specifications?.pincode || '').trim();
+    const resolvedCountry = (country || req.body.countryName || specifications?.country || 'India').trim();
     const resolvedQuantity = Number(quantity !== undefined ? quantity : (req.body.qty !== undefined ? req.body.qty : 1)) || 1;
 
     if (!email || !inquiryName) {
@@ -230,6 +232,7 @@ const createInquiry = async (req, res, next) => {
       fullName: resolvedFullName,
       address: resolvedAddress,
       pincode: resolvedPincode,
+      country: resolvedCountry,
       category: cleanCategory,
       size: inquirySize,
       specifications: specifications || {},

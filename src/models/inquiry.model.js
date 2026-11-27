@@ -34,6 +34,11 @@ const inquirySchema = new mongoose.Schema(
       default: '',
       trim: true
     },
+    country: {
+      type: String,
+      default: 'India',
+      trim: true
+    },
     category: {
       type: String,
       default: 'fashion'
